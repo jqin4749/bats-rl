@@ -12,4 +12,4 @@
 python train.py --n_pkt 64 --n_batch 10 --batch_size 8 --num_hops 10 --loss_rate 0.1
 ```
 
-trained weights available upon request. contact: jack qing (jqing@ie.cuhk.edu.hk)
+trained weights available upon request. contact: Jack Qing (jqing@ie.cuhk.edu.hk)
