@@ -70,74 +70,6 @@ class actor_cnn(nn.Module):
         assert out.shape[1] == 1 and out.shape[2] == self.n_cns_ and out.shape[3] == self.n_vns_
         return out
 
-class actor_fcn(nn.Module):
-    def __init__(self,n_vns, n_cns, state_size = 128) -> None:
-        super(actor_fcn,self).__init__()
-        self.n_vns_ = n_vns
-        self.n_cns_ = n_cns
-        self.state_size_ = state_size
-        self.hidden_c_ = 16
-        self.hidden_linear_ = 16
-        self.filter_size_ = 2
-        self.num_cnn_layer_ = 5
-        self.pert_rate_ = 0.2
-        self.padding_ = 1
-        self.dev_ =  torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
-
-        self.cnn_dim_ = self.get_conv1d_trans_input_size(self.hidden_linear_)
-
-        self.input_layers = nn.Sequential(
-            nn.Linear(self.state_size_, self.hidden_c_*self.cnn_dim_),
-            nn.BatchNorm1d(self.hidden_c_*self.cnn_dim_),
-            nn.LeakyReLU()
-        )
-
-        self.cnn = nn.Sequential(
-            nn.ConvTranspose1d(self.hidden_c_,self.hidden_c_*8, self.filter_size_,padding=self.padding_),
-            nn.BatchNorm1d(self.hidden_c_*8),
-            nn.LeakyReLU(),
-            nn.ConvTranspose1d(self.hidden_c_*8,self.hidden_c_*4, self.filter_size_,padding=self.padding_),
-            nn.BatchNorm1d(self.hidden_c_*4),
-            nn.LeakyReLU(),
-            nn.ConvTranspose1d(self.hidden_c_*4,self.hidden_c_*2, self.filter_size_,padding=self.padding_),
-            nn.BatchNorm1d(self.hidden_c_*2),
-            nn.LeakyReLU(),
-            nn.ConvTranspose1d(self.hidden_c_*2,self.hidden_c_, self.filter_size_,padding=self.padding_),
-            nn.BatchNorm1d(self.hidden_c_),
-            nn.LeakyReLU(),
-            nn.ConvTranspose1d(self.hidden_c_, 1, self.filter_size_, padding=self.padding_),
-            nn.LeakyReLU()
-        )
-
-        self.output_layers = nn.Sequential(
-            nn.Linear(self.hidden_linear_, self.n_cns_*self.n_vns_),
-            nn.Sigmoid()
-        )
-        
-    def forward(self,x):
-        assert x.ndim == 2, '[actor_fcn] ndim error. got %d'%x.ndim
-        assert x.shape[-1] == self.state_size_
-        out = self.input_layers(x)
-        out = out.contiguous().view(-1, self.hidden_c_, self.cnn_dim_)
-        out = self.cnn(out)
-        # out = torch.unsqueeze(out,dim=1)
-        out = out.contiguous().view(-1, self.hidden_linear_)
-        # if self.training:
-        #     idx = np.random.choice(out.shape[0], int(out.shape[0] * self.pert_rate_)) 
-        #     out[idx,:] += torch.rand(self.hidden_linear_).to(self.dev_)
-        out = self.output_layers(out).contiguous().view(-1, 1, self.n_cns_, self.n_vns_)
-        assert out.shape[1] == 1 and out.shape[2] == self.n_cns_ and out.shape[3] == self.n_vns_
-        return out
-
-    def get_conv1d_trans_input_size(self,target):
-        d = target
-        for i in range(self.num_cnn_layer_):
-            d = self.cnn_dim(d)
-        return d
-
-    def cnn_dim(self,ts):
-        return ts + 2 * self.padding_ - self.filter_size_ + 1
-
 class critic_cnn(nn.Module):
     def __init__(self,n_vns, n_cns) -> None:
         super(critic_cnn,self).__init__()
@@ -183,63 +115,6 @@ class critic_cnn(nn.Module):
         t = torch.rand(1,1,self.n_cns_,self.n_vns_) 
         with torch.no_grad():
             o = self.cnn(t)
-        o = o.view(1,-1)
-        return o.shape[-1]
-
-
-class critic_fcn(nn.Module):
-    def __init__(self,n_vns, n_cns) -> None:
-        super(critic_fcn,self).__init__()
-        self.n_vns_ = n_vns
-        self.n_cns_ = n_cns
-        self.hidden_c_ = 16
-        self.hidden_c__linear_ = 64
-        self.filter_size_ = 3
-        self.padding_ = 1
-
-        self.input_layer = nn.Sequential(
-            nn.Linear(self.n_vns_*self.n_cns_,self.hidden_c__linear_),
-            nn.BatchNorm1d(self.hidden_c__linear_),
-            nn.LeakyReLU()
-        )
-        
-        self.fcn = nn.Sequential(
-            nn.Conv1d(1,self.hidden_c_,self.filter_size_ , padding=self.padding_),
-            nn.BatchNorm1d(self.hidden_c_),
-            nn.LeakyReLU(),
-            nn.Conv1d(self.hidden_c_,self.hidden_c_*2,self.filter_size_ , padding=self.padding_),
-            nn.BatchNorm1d(self.hidden_c_*2),
-            nn.LeakyReLU(),
-            nn.Conv1d(self.hidden_c_*2,self.hidden_c_*4,self.filter_size_ , padding=self.padding_),
-            nn.BatchNorm1d(self.hidden_c_*4),
-            nn.LeakyReLU(),
-            nn.Conv1d(self.hidden_c_*4,self.hidden_c_*2,self.filter_size_ , padding=self.padding_),
-            nn.BatchNorm1d(self.hidden_c_*2),
-            nn.LeakyReLU(),
-            nn.Conv1d(self.hidden_c_*2,self.hidden_c_,self.filter_size_ , padding=self.padding_),
-            nn.BatchNorm1d(self.hidden_c_),
-            nn.LeakyReLU()
-        )
-        self.linear_input_size = self.get_conv_out_size()
-        self.out_layer = nn.Linear(self.linear_input_size + self.n_cns_ + self.n_vns_, 1) 
-
-    def forward(self,x):  # x: action (-1, 1, n_cns, n_vns)
-        if x.ndim == 3:
-            x = torch.unsqueeze(x,dim=1)
-        assert x.ndim == 4, '[critic_cnn] ndim error. got %d'%x.ndim
-        ds = (torch.sum(x,dim=-1) / self.n_vns_).view(-1,self.n_cns_)
-        ns = (torch.sum(x,dim=-2) / self.n_cns_).view(-1,self.n_vns_)
-        x = torch.squeeze(x,dim=1).contiguous().view(-1, self.n_cns_*self.n_vns_) # to compensate the input format due to cnn
-        out = self.input_layer(x) 
-        out = self.fcn(torch.unsqueeze(out,dim=1)).contiguous().view(-1,self.linear_input_size)
-        out = torch.cat((out, ds, ns),dim=-1)
-        out = self.out_layer(out)
-        return out
-
-    def get_conv_out_size(self):
-        t = torch.rand(1, 1, self.hidden_c__linear_) 
-        with torch.no_grad():
-            o = self.fcn(t)
         o = o.view(1,-1)
         return o.shape[-1]
    
@@ -377,10 +252,10 @@ class DDPG:
         self.gd_ = 0.0
         self.dev_ =  torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
 
-        self.actor = actor_cnn(n_vns, n_cns, state_size) # if mode == 'cnn' else actor_fcn(n_vns, n_cns,state_size) 
+        self.actor = actor_cnn(n_vns, n_cns, state_size) 
         self.actor_opt = torch.optim.Adam(self.actor.parameters(),lr=2e-4)
 
-        self.critic = critic_cnn(n_vns, n_cns) if mode == 'cnn' else critic_fcn(n_vns, n_cns) 
+        self.critic = critic_cnn(n_vns, n_cns) 
         self.critic_opt = torch.optim.Adam(self.critic.parameters(),lr=1e-3)
         
         self.criterion = nn.SmoothL1Loss()
